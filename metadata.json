@@ -1,0 +1,6 @@
+{
+  "name": "Professional Sheets Dashboard",
+  "description": "A sleek, professional dashboard connected to Google Sheets with admin authentication and real-time data visualization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
