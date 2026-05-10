@@ -5,49 +5,42 @@
 
 /*
   -------------------------------------------------------------------------
-  🚀 BACKEND SETUP (Copy ไปไว้ใน Google Apps Script โปรเจกต์เดิมของคุณ)
+  🚀 วิธีย้ายโค้ดไป GitHub และเชื่อมต่อ Google Sheets (ภาษาไทย)
   -------------------------------------------------------------------------
-  
-  [ไฟล์ที่ 1: Dashboard_API.gs]
-  
-  // ฟังก์ชันรองรับการดึงข้อมูลจาก GitHub/External URL
+  1. ใน AI Studio: เลือกเมนู 'Settings' -> 'Export to GitHub' เพื่อสร้าง Repository
+  2. ใน GitHub: ไปที่ Settings > Pages เลือก 'GitHub Actions' เป็นแหล่งการ Deploy
+  3. ใน Google Apps Script (GAS): 
+     - สร้างไฟล์ชื่อ 'Dashboard.gs' และวางโค้ดด้านล่างนี้
+     - กด 'Deploy' -> 'New Deployment' เลือก 'Web App'
+     - ตั้งค่า 'Who has access' เป็น 'Anyone' 
+     - ก๊อปปี้ 'Web App URL' มาใส่ในช่อง Input บนหน้าเว็บของคุณ
+
+  --- [คัดลอกส่วนนี้ไปใส่ใน Apps Script] ---
   function doGet(e) {
-    const action = e.parameter.action;
-    
-    if (action === "getData") {
-      const data = getSheetData();
-      return ContentService.createTextOutput(JSON.stringify(data))
+    if (e.parameter.action === "getData") {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const sheet = ss.getSheetByName("GeneralInfo") || ss.getSheets()[0];
+      const data = sheet.getDataRange().getValues();
+      const headers = data[0];
+      const result = data.slice(1).map(row => {
+        let obj = {};
+        headers.forEach((h, i) => obj[h] = row[i]);
+        return obj;
+      });
+      return ContentService.createTextOutput(JSON.stringify(result))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    
-    // สำหรับการรันหน้าเว็บภายใน GAS (ถ้าต้องการ)
-    return HtmlService.createHtmlOutputFromFile('index')
-      .setTitle('Elderly School Dashboard')
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 
-  function getSheetData() {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName("GeneralInfo") || ss.getSheets()[0];
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-    return data.slice(1).map(row => {
-      let obj = {};
-      headers.forEach((h, i) => obj[h] = row[i]);
-      return obj;
-    });
-  }
-
-  // ฟังก์ชันอัปเดตข้อมูล (เรียกผ่าน doPost หรือ google.script.run)
   function updateMemberData(rowObj) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("GeneralInfo") || ss.getSheets()[0];
     const data = sheet.getDataRange().getValues();
-    const idIndex = data[0].indexOf("ID Number"); 
+    const idKey = "ID Number"; // หรือชื่อหัวตารางที่คุณใช้
+    const idIndex = data[0].indexOf(idKey);
     
     for (let i = 1; i < data.length; i++) {
-      if (data[i][idIndex] == rowObj["ID Number"]) {
+      if (data[i][idIndex] == rowObj[idKey]) {
         const headers = data[0];
         const newRow = headers.map(h => rowObj[h]);
         sheet.getRange(i + 1, 1, 1, headers.length).setValues([newRow]);
@@ -55,9 +48,6 @@
       }
     }
   }
-
-  [ไฟล์ที่ 2: Registration.gs]
-  // เก็บโค้ด doPost เดิมของคุณไว้ที่นี่ได้เลยครับ มันจะทำงานแยกกันตาม Entry Point
 */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -80,7 +70,10 @@ import {
   Database,
   ExternalLink,
   ChevronRight,
-  Stethoscope
+  Stethoscope,
+  Save,
+  RefreshCw,
+  Link2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -111,66 +104,68 @@ export default function App() {
   const [sheetData, setSheetData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [gasUrl, setGasUrl] = useState(''); // เก็บ URL ของ Web App
-  const [isExternal, setIsExternal] = useState(false);
+  const [gasUrl, setGasUrl] = useState(localStorage.getItem('gas_url') || ''); 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // ฟังก์ชันดึงข้อมูลจาก GAS Web App
+  const fetchData = async (url: string) => {
+    if (!url) {
+      setLoading(false);
+      // Mock data ถ้าไม่มี URL
+      setSheetData([
+        { 'ID Number': '001', 'Name': 'คุณยายสมศรี ใจดี', 'Age': 68, 'Health Conditions': 'เบาหวาน', 'Phone': '081-xxx-xxxx' },
+        { 'ID Number': '002', 'Name': 'คุณตาบุญมี มีสุข', 'Age': 72, 'Health Conditions': 'ปกติ', 'Phone': '089-xxx-xxxx' },
+      ]);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${url}?action=getData`);
+      const result = await response.json();
+      setSheetData(result);
+      localStorage.setItem('gas_url', url);
+    } catch (err) {
+      console.error("Fetch Error:", err);
+      alert("ไม่สามารถเชื่อมต่อกับ Google Sheets ได้ โปรดตรวจสอบ Web App URL");
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    const initData = async () => {
-      const win = window as any;
-      
-      // กรณี 1: รันบน Google Apps Script (doGet)
-      if (win.google?.script?.run) {
-        setIsExternal(false);
-        win.google.script.run
-          .withSuccessHandler((result: any[]) => {
-            setSheetData(result);
-            setLoading(false);
-          })
-          .getSheetData();
-      } 
-      // กรณี 2: รันบน GitHub Pages (External)
-      else if (gasUrl) {
-        setIsExternal(true);
-        try {
-          const response = await fetch(`${gasUrl}?action=getData`);
-          const result = await response.json();
+    const win = window as any;
+    if (win.google?.script?.run) {
+      // ถ้ารันใน GAS โดยตรง (doGet)
+      win.google.script.run
+        .withSuccessHandler((result: any[]) => {
           setSheetData(result);
           setLoading(false);
-        } catch (err) {
-          console.error("Fetch Error:", err);
-          setLoading(false);
-        }
-      } 
-      // กรณี 3: Simulation Mode (AI Studio)
-      else {
-        setTimeout(() => {
-          setLoading(false);
-          setSheetData([
-             { 'Name': 'คุณยายทองดี', 'Age': 72, 'Health Conditions': 'ความดัน', 'ID Number': '101', 'Phone': '081-xxx' },
-             { 'Name': 'คุณตาบุญส่ง', 'Age': 68, 'Health Conditions': 'ปกติ', 'ID Number': '102', 'Phone': '089-xxx' },
-             { 'Name': 'คุณป้าสมศรี', 'Age': 75, 'Health Conditions': 'เบาหวาน', 'ID Number': '103', 'Phone': '082-xxx' }
-          ]);
-        }, 800);
-      }
-    };
-    initData();
-  }, [gasUrl]);
+        })
+        .getSheetData();
+    } else {
+      // ถ้ารันภายนอก (GitHub Pages)
+      fetchData(gasUrl);
+    }
+  }, []);
 
   const stats = useMemo(() => {
     if (!sheetData.length) return null;
     const total = sheetData.length;
-    const chronic = sheetData.filter(d => d['Health Conditions'] || d['โรคประจำตัว']).length;
+    const chronic = sheetData.filter(d => d['Health Conditions'] || d['โรคประจำตัว'] || d['สุขภาพ']).length;
     
-    const ageGroups = { '60-70': 0, '71-80': 0, '81+': 0 };
+    const ageGroups = { '60-70 ปี': 0, '71-80 ปี': 0, '81 ปีขึ้นไป': 0 };
     sheetData.forEach(d => {
       const age = Number(d['Age'] || d['อายุ']);
-      if (age >= 81) ageGroups['81+']++;
-      else if (age >= 71) ageGroups['71-80']++;
-      else ageGroups['60-70']++;
+      if (age >= 81) ageGroups['81 ปีขึ้นไป']++;
+      else if (age >= 71) ageGroups['71-80 ปี']++;
+      else ageGroups['60-70 ปี']++;
     });
 
     return { 
-      total, chronic, 
+      total, 
+      chronic, 
       ageChart: Object.entries(ageGroups).map(([name, value]) => ({ name, value })) 
     };
   }, [sheetData]);
@@ -180,27 +175,26 @@ export default function App() {
     if (win.google?.script?.run) {
       win.google.script.run.updateMemberData(row);
     } else {
-      // สำหรับ External อาจต้องใช้ API อื่น หรือแจ้งให้ไปแก้ใน GAS
-      alert("⚠️ การอัปเดตข้อมูลจาก GitHub จำเป็นต้องตั้งค่า CORS หรือใช้ doPost เสริม");
+      alert("⚠️ ขณะนี้ระบบรองรับการแก้ไขผ่านหน้า Web App ของ Google Apps Script โดยตรงเท่านั้น (GitHub Mode: Read-Only)");
     }
     setSheetData(prev => prev.map(r => r['ID Number'] === row['ID Number'] ? row : r));
   };
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans antialiased">
-      {/* Sidebar - Elite Slate Theme */}
-      <aside className="fixed left-0 top-0 h-full w-24 bg-[#0F172A] flex flex-col items-center py-10 z-50 transition-all">
+      {/* Sidebar - Elite Dark Blue */}
+      <aside className="fixed left-0 top-0 h-full w-24 bg-[#0F172A] flex flex-col items-center py-10 z-50">
         <div className="mb-14">
-          <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-700 rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/20 rotate-3">
+          <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-700 rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/20">
             <GraduationCap className="text-white" size={32} />
           </div>
         </div>
         
         <div className="flex-1 flex flex-col gap-10">
-          <button onClick={() => setView('dashboard')} className={cn("p-4 rounded-2xl transition-all hover:scale-110", view === 'dashboard' ? "bg-white/10 text-blue-400 shadow-inner" : "text-slate-500 hover:text-white")}>
+          <button onClick={() => setView('dashboard')} className={cn("p-4 rounded-2xl transition-all", view === 'dashboard' ? "bg-white/10 text-blue-400 shadow-inner" : "text-slate-500 hover:text-white")}>
             <LayoutDashboard size={28} />
           </button>
-          <button onClick={() => isAuthenticated ? setView('admin') : setShowLogin(true)} className={cn("p-4 rounded-2xl transition-all hover:scale-110", view === 'admin' ? "bg-white/10 text-blue-400 shadow-inner" : "text-slate-500 hover:text-white")}>
+          <button onClick={() => isAuthenticated ? setView('admin') : setShowLogin(true)} className={cn("p-4 rounded-2xl transition-all", view === 'admin' ? "bg-white/10 text-blue-400 shadow-inner" : "text-slate-500 hover:text-white")}>
             <Database size={28} />
           </button>
         </div>
@@ -215,33 +209,34 @@ export default function App() {
         <header className="px-12 py-10 bg-white/80 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-40 flex justify-between items-end">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-               <h1 className="text-4xl font-black text-slate-900 tracking-tighter">ELITE SENSOR</h1>
-               <span className="text-[10px] font-bold bg-blue-600 text-white px-3 py-1 rounded-full uppercase tracking-widest shadow-lg shadow-blue-500/20">System v2.4</span>
+               <h1 className="text-4xl font-black text-slate-900 tracking-tighter">ELITE AGING</h1>
+               <span className="text-[10px] font-bold bg-blue-600 text-white px-3 py-1 rounded-full uppercase tracking-widest">Dashboard v3</span>
             </div>
             <p className="text-slate-400 text-sm font-medium flex items-center gap-2">
                <Globe className="text-blue-500" size={16} /> 
-               {isExternal ? "GitHub Deployment Mode" : "Google Workspace Integrated"}
+               ระบบบริหารจัดการข้อมูลโรงเรียนผู้สูงอายุ
             </p>
           </div>
           
           <div className="flex gap-6 items-center">
-             {!isExternal && !winExist() && (
-                <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center gap-3">
-                   <div className="space-y-1">
-                      <p className="text-[10px] font-bold text-amber-700 uppercase">Input GAS Web App URL</p>
-                      <input 
-                         className="bg-transparent text-xs outline-none border-b border-amber-300 w-48"
-                         placeholder="https://script.google.com/..."
-                         onChange={(e) => setGasUrl(e.target.value)}
-                      />
-                   </div>
-                </div>
-             )}
+             <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-2xl">
+                <Link2 className="text-slate-400" size={16} />
+                <input 
+                  className="bg-transparent text-xs font-bold outline-none w-48 text-slate-600"
+                  placeholder="URL ของ Web App จาก GAS"
+                  value={gasUrl}
+                  onChange={(e) => setGasUrl(e.target.value)}
+                  onBlur={() => fetchData(gasUrl)}
+                />
+                <button onClick={() => fetchData(gasUrl)} className="p-1 hover:text-blue-600">
+                  <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
+                </button>
+             </div>
              <div className="text-right">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Network Activity</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">การเชื่อมต่อ</span>
                 <div className="flex items-center gap-2 justify-end mt-1">
-                  <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.7)]" />
-                  <span className="text-sm font-bold text-slate-900">Live Secure Connection</span>
+                  <div className={cn("w-2.5 h-2.5 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.7)]", gasUrl ? "bg-emerald-500 animate-pulse" : "bg-slate-300")} />
+                  <span className="text-sm font-bold text-slate-900">{gasUrl ? "เชื่อมต่อข้อมูลจริง" : "โหมดทดสอบ"}</span>
                 </div>
              </div>
           </div>
@@ -250,7 +245,7 @@ export default function App() {
         {loading ? (
           <div className="flex flex-col items-center justify-center h-[60vh] gap-6">
              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin shadow-xl" />
-             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse">Requesting Database Access...</p>
+             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse">กำลังดึงข้อมูลจาก GOOGLE SHEETS...</p>
           </div>
         ) : (
           <div className="p-12 max-w-7xl mx-auto space-y-12">
@@ -258,26 +253,26 @@ export default function App() {
               <>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                   <div className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-sm transition-all hover:shadow-xl hover:-translate-y-1 group">
-                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Total Enrollment</p>
+                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">จำนวนนักเรียนทั้งหมด</p>
                      <div className="flex justify-between items-end">
-                        <h2 className="text-5xl font-black text-slate-900">{stats?.total}</h2>
+                        <h2 className="text-5xl font-black text-slate-900">{stats?.total} <span className="text-lg font-bold text-slate-400">คน</span></h2>
                         <UserRound className="text-blue-500 opacity-20 group-hover:opacity-100 transition-opacity" size={40} />
                      </div>
                   </div>
                   <div className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-sm transition-all hover:shadow-xl hover:-translate-y-1">
-                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Aging Factor</p>
+                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">กลุ่มอายุหลัก</p>
                      <div className="flex justify-between items-end">
                         <h2 className="text-5xl font-black text-slate-900">{stats?.ageChart[0]?.value}</h2>
-                        <span className="text-xs font-bold text-slate-400 mb-2">60-70 Yrs</span>
+                        <span className="text-xs font-bold text-slate-400 mb-2">ช่วง 60-70 ปี</span>
                      </div>
                   </div>
                   <div className="bg-slate-900 p-10 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden group">
                      <div className="absolute top-0 right-0 p-6 opacity-10">
                         <Activity size={80} />
                      </div>
-                     <p className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-2">Health Monitoring</p>
-                     <h2 className="text-5xl font-black">{stats?.chronic}</h2>
-                     <p className="text-[10px] font-bold text-slate-500 mt-2">CHRONIC CONDITIONS DETECTED</p>
+                     <p className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-2">ภาวะสุขภาพที่ต้องเฝ้าระวัง</p>
+                     <h2 className="text-5xl font-black">{stats?.chronic} <span className="text-lg font-bold text-slate-500">ราย</span></h2>
+                     <p className="text-[10px] font-bold text-slate-500 mt-2 uppercase">Detected Chronic Conditions</p>
                   </div>
                 </div>
 
@@ -286,7 +281,7 @@ export default function App() {
                       <div className="flex justify-between items-center mb-10">
                          <h3 className="text-xl font-bold flex items-center gap-3">
                            <BarChart3 className="text-blue-600" size={24} />
-                           Population Matrix
+                           สถิติจำนวนนักเรียนตามช่วงอายุ
                          </h3>
                          <ChevronRight className="text-slate-300" />
                       </div>
@@ -306,7 +301,7 @@ export default function App() {
                    <div className="bg-[#0F172A] p-10 rounded-[3rem] text-white relative">
                       <h3 className="text-xl font-bold mb-10 flex items-center gap-3">
                         <HeartPulse className="text-blue-400" size={24} />
-                        Health Distribution
+                        สัดส่วนข้อมูลเชิงสุขภาพ
                       </h3>
                       <div className="flex items-center">
                         <div className="h-[250px] flex-1">
@@ -340,22 +335,22 @@ export default function App() {
 
                 <div className="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-sm">
                    <div className="px-12 py-10 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
-                      <h3 className="text-xl font-bold flex items-center gap-3">
+                      <h3 className="text-xl font-bold flex items-center gap-3 text-slate-900">
                          <BookOpen className="text-blue-600" size={24} />
-                         Recent Records Preview
+                         รายชื่อนักเรียนล่าสุด (จาก Google Sheets)
                       </h3>
                       <button onClick={() => setView('admin')} className="text-xs font-bold text-blue-600 uppercase tracking-widest hover:underline flex items-center gap-2">
-                        View Admin Terminal <ExternalLink size={14} />
+                        จัดการข้อมูลหลังบ้าน <ExternalLink size={14} />
                       </button>
                    </div>
                    <div className="overflow-x-auto">
                      <table className="w-full text-left">
                        <thead>
                          <tr className="bg-white border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                           <th className="px-12 py-6">Member Name</th>
-                           <th className="px-12 py-6">Age</th>
-                           <th className="px-12 py-6">Identity</th>
-                           <th className="px-12 py-6">Status</th>
+                           <th className="px-12 py-6">ชื่อ-นามสกุล</th>
+                           <th className="px-12 py-6">อายุ</th>
+                           <th className="px-12 py-6">รหัสประจำตัว</th>
+                           <th className="px-12 py-6">ภาวะสุขภาพ</th>
                          </tr>
                        </thead>
                        <tbody className="divide-y divide-slate-50">
@@ -363,18 +358,18 @@ export default function App() {
                            <tr key={i} className="hover:bg-blue-50/30 transition-colors">
                              <td className="px-12 py-6">
                                 <p className="text-sm font-black text-slate-900">{row['Name'] || row['ชื่อ-นามสกุล']}</p>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase">{row['Phone'] || "NO_CONTACT"}</p>
+                                <p className="text-[10px] text-slate-400 font-bold">{row['Phone'] || row['เบอร์โทรศัพท์'] || "ไม่มีข้อมูลติดต่อ"}</p>
                              </td>
-                             <td className="px-12 py-6 text-sm font-bold text-slate-500">{row['Age'] || row['อายุ']} Yrs</td>
-                             <td className="px-12 py-6 text-xs font-mono text-slate-400">{row['ID Number'] || "xxx-xxx"}</td>
+                             <td className="px-12 py-6 text-sm font-bold text-slate-500">{row['Age'] || row['อายุ']} ปี</td>
+                             <td className="px-12 py-6 text-xs font-mono text-slate-400">{row['ID Number'] || row['รหัส']}</td>
                              <td className="px-12 py-6">
-                                {row['Health Conditions'] || row['โรคประจำตัว'] ? (
+                                {row['Health Conditions'] || row['โรคประจำตัว'] || row['สุขภาพ'] ? (
                                    <div className="bg-rose-50 border border-rose-100 text-rose-600 text-[10px] font-black px-3 py-1 rounded-full inline-block">
-                                      {row['Health Conditions']}
+                                      {row['Health Conditions'] || row['โรคประจำตัว'] || row['สุขภาพ']}
                                    </div>
                                 ) : (
                                    <div className="bg-emerald-50 border border-emerald-100 text-emerald-600 text-[10px] font-black px-3 py-1 rounded-full inline-block">
-                                      CLEAR
+                                      ปกติ
                                    </div>
                                 )}
                              </td>
@@ -389,14 +384,14 @@ export default function App() {
               <div className="space-y-10 animate-in fade-in duration-700">
                 <div className="flex justify-between items-end">
                    <div className="space-y-2">
-                      <h2 className="text-5xl font-black text-slate-900 tracking-tighter italic">ADMIN TERMINAL</h2>
-                      <p className="text-slate-400 font-medium">Direct Synchronous Data Manipulation</p>
+                      <h2 className="text-5xl font-black text-slate-900 tracking-tighter uppercase italic">Admin Terminal</h2>
+                      <p className="text-slate-400 font-medium">แก้ไขและจัดการข้อมูลดิบจาก GeneralInfo</p>
                    </div>
                    <div className="relative group">
                       <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={20} />
                       <input 
                          className="pl-14 pr-10 py-5 bg-white border border-slate-200 rounded-[2rem] w-[400px] shadow-sm outline-none focus:ring-4 focus:ring-blue-600/5 transition-all text-sm font-bold"
-                         placeholder="Search member identity matrix..."
+                         placeholder="ค้นหาตามชื่อ หรือรหัส..."
                          value={search}
                          onChange={(e) => setSearch(e.target.value)}
                       />
@@ -411,7 +406,7 @@ export default function App() {
                                {sheetData[0] && Object.keys(sheetData[0]).map(h => (
                                  <th key={h} className="px-10 py-8 text-[10px] font-black uppercase tracking-[0.2em] opacity-40 whitespace-nowrap">{h}</th>
                                ))}
-                               <th className="px-10 py-8 text-[10px] font-black uppercase tracking-[0.2em] opacity-40">ACTION</th>
+                               <th className="px-10 py-8 text-[10px] font-black uppercase tracking-[0.2em] opacity-40">บันทึก</th>
                             </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-100">
@@ -431,7 +426,7 @@ export default function App() {
                                        onClick={() => handleUpdate(row)}
                                        className="p-4 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-600 hover:text-white transition-all shadow-lg shadow-blue-500/10"
                                     >
-                                       <CheckCircle2 size={24} />
+                                       <Save size={24} />
                                     </button>
                                  </td>
                               </tr>
@@ -457,24 +452,24 @@ export default function App() {
                  <div className="w-24 h-24 bg-blue-600 rounded-[2rem] flex items-center justify-center mb-10 shadow-2xl shadow-blue-600/30">
                    <Lock className="text-white" size={40} />
                  </div>
-                 <h2 className="text-3xl font-black mb-3 tracking-tighter">RESTRICTED AREA</h2>
-                 <p className="text-slate-400 text-sm text-center mb-12 font-bold uppercase tracking-widest">Admin Authorization Required</p>
+                 <h2 className="text-3xl font-black mb-3 tracking-tighter">เข้าสู่ระบบจัดการ</h2>
+                 <p className="text-slate-400 text-sm text-center mb-12 font-bold uppercase tracking-widest">กรุณายืนยันรหัสเข้าถึงแผงควบคุม</p>
                  <form 
                    onSubmit={(e) => { 
                       e.preventDefault(); 
                       if(password === '1111') { setIsAuthenticated(true); setShowLogin(false); setView('admin'); } 
-                      else alert('Access Denied'); 
+                      else alert('รหัสผ่านไม่ถูกต้อง'); 
                    }} 
                    className="w-full space-y-6"
                   >
                     <input 
                       type="password" placeholder="••••" autoFocus
-                      className="w-full px-8 py-6 bg-slate-100 border border-slate-200 rounded-[2.5rem] text-center text-5xl font-black tracking-[0.5em] focus:ring-8 focus:ring-blue-600/5 outline-none transition-all placeholder:tracking-normal placeholder:opacity-20"
+                      className="w-full px-8 py-6 bg-slate-100 border border-slate-200 rounded-[2.5rem] text-center text-5xl font-black tracking-[0.5em] focus:ring-8 focus:ring-blue-600/5 outline-none transition-all placeholder:tracking-normal"
                       onChange={(e) => setPassword(e.target.value)}
                     />
                     <div className="flex gap-4 pt-4">
-                       <button type="button" onClick={() => setShowLogin(false)} className="flex-1 py-5 font-black text-slate-400 uppercase text-xs tracking-[0.2em] hover:text-slate-600 transition-colors">Cancel</button>
-                       <button type="submit" className="flex-1 py-6 bg-[#0F172A] text-white rounded-[2.5rem] font-black shadow-2xl hover:bg-black transition-all text-sm uppercase tracking-[0.3em]">Authorize</button>
+                       <button type="button" onClick={() => setShowLogin(false)} className="flex-1 py-5 font-black text-slate-400 uppercase text-xs tracking-[0.2em] hover:text-slate-600 transition-colors">ยกเลิก</button>
+                       <button type="submit" className="flex-1 py-6 bg-[#0F172A] text-white rounded-[2.5rem] font-black shadow-2xl hover:bg-black transition-all text-sm uppercase tracking-[0.3em]">ยืนยัน</button>
                     </div>
                  </form>
               </div>
@@ -483,8 +478,4 @@ export default function App() {
       )}
     </div>
   );
-}
-
-function winExist() {
-  return (window as any).google?.script?.run;
 }
